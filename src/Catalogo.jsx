@@ -1,21 +1,27 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   Box,
   Tabs,
   Tab,
   Typography,
   Paper,
-  List,
-  ListItem,
-  ListItemText,
   CircularProgress,
   Container,
   Table,
   TableHead,
   TableBody,
   TableRow,
-  TableCell
+  TableCell,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Alert,
+  Snackbar
 } from "@mui/material";
+import api from './services/api';
 
 function TabPanel(props) {
   const { children, value, index, ...other } = props;
@@ -32,18 +38,25 @@ function TabPanel(props) {
   );
 }
 
-export default function Catalogo() {
+export default function Catalogo({ perfis: initialPerfis = [] }) {
   const [tab, setTab] = useState(0);
-  const [perfis, setPerfis] = useState([]);
+  const [perfis, setPerfis] = useState(initialPerfis);
   const [acessorios, setAcessorios] = useState([]);
   const [vidros, setVidros] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   // --- CRUD Perfis ---
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPerfil, setEditingPerfil] = useState(null);
   const [perfilForm, setPerfilForm] = useState({
-    codigo: '', descricao: '', preco_barra: '', peso_kg_por_metro: '', unidade_medida: '', fornecedor: ''
+    codigo: '', 
+    descricao: '', 
+    preco_barra: '', 
+    peso_kg_por_metro: '', 
+    unidade_medida: '', 
+    fornecedor: ''
   });
 
   // Atualiza formulário ao editar
@@ -51,117 +64,195 @@ export default function Catalogo() {
     if (editingPerfil) {
       setPerfilForm(editingPerfil);
     } else {
-      setPerfilForm({ codigo: '', descricao: '', preco_barra: '', peso_kg_por_metro: '', unidade_medida: '', fornecedor: '' });
+      setPerfilForm({ 
+        codigo: '', 
+        descricao: '', 
+        preco_barra: '', 
+        peso_kg_por_metro: '', 
+        unidade_medida: '', 
+        fornecedor: '' 
+      });
     }
   }, [editingPerfil]);
 
-  // Atualiza lista de perfis
-  const fetchPerfis = () => {
-    setLoading(true);
-    fetch("http://localhost:8000/api/perfis")
-      .then(res => res.json())
-      .then(data => { setPerfis(data); setLoading(false); });
+  // Função para mostrar notificação
+  const showSnackbar = (message, severity = 'success') => {
+    setSnackbar({ open: true, message, severity });
   };
+
+  // Fechar notificação
+  const handleCloseSnackbar = () => {
+    setSnackbar(prev => ({ ...prev, open: false }));
+  };
+
+  // Carrega os dados do catálogo
+  const fetchCatalogo = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Se já temos os perfis (passados como prop), não precisamos carregar novamente
+      const [acessoriosData, vidrosData] = await Promise.all([
+        api.getAcessorios().catch(() => []),
+        api.getVidros().catch(() => [])
+      ]);
+      
+      setAcessorios(acessoriosData);
+      setVidros(vidrosData);
+    } catch (err) {
+      console.error('Erro ao carregar catálogo:', err);
+      setError('Não foi possível carregar o catálogo. Tente novamente mais tarde.');
+      showSnackbar('Erro ao carregar o catálogo', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Atualiza lista de perfis
+  const fetchPerfis = useCallback(async () => {
+    try {
+      const data = await api.getPerfis();
+      setPerfis(data);
+    } catch (err) {
+      console.error('Erro ao carregar perfis:', err);
+      showSnackbar('Erro ao carregar perfis', 'error');
+    }
+  }, []);
+
+  // Carrega os dados iniciais
+  useEffect(() => {
+    fetchCatalogo();
+    // Se não recebemos perfis como prop, carregamos
+    if (initialPerfis.length === 0) {
+      fetchPerfis();
+    }
+  }, [fetchCatalogo, fetchPerfis, initialPerfis]);
 
   // Submissão do formulário (criar ou editar)
   const handleSubmitPerfil = async (e) => {
     e.preventDefault();
-    const method = editingPerfil ? 'PUT' : 'POST';
-    const url = editingPerfil
-      ? `http://localhost:8000/api/perfis/${perfilForm.codigo}`
-      : 'http://localhost:8000/api/perfis';
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(perfilForm)
-    });
-    if (res.ok) {
+    try {
+      await api.savePerfil(perfilForm);
       setModalOpen(false);
-      fetchPerfis();
-    } else {
-      alert('Erro ao salvar perfil.');
+      await fetchPerfis();
+      showSnackbar('Perfil salvo com sucesso!');
+    } catch (err) {
+      console.error('Erro ao salvar perfil:', err);
+      showSnackbar(err.message || 'Erro ao salvar perfil', 'error');
     }
   };
 
   // Excluir perfil
   const handleDeletePerfil = async (codigo) => {
     if (!window.confirm('Tem certeza que deseja excluir este perfil?')) return;
-    const res = await fetch(`http://localhost:8000/api/perfis/${codigo}`, { method: 'DELETE' });
-    if (res.ok) {
-      fetchPerfis();
-    } else {
-      alert('Erro ao excluir perfil.');
+    
+    try {
+      await api.deletePerfil(codigo);
+      await fetchPerfis();
+      showSnackbar('Perfil excluído com sucesso!');
+    } catch (err) {
+      console.error('Erro ao excluir perfil:', err);
+      showSnackbar('Erro ao excluir perfil', 'error');
     }
   };
 
-  useEffect(() => {
-    console.log('Iniciando carregamento do catálogo...');
-    setLoading(true);
-    
-    const fetchData = async () => {
-      try {
-        console.log('Fazendo requisições para a API...');
-        const [perfisRes, acessoriosRes, vidrosRes] = await Promise.all([
-          fetch("http://localhost:8000/api/perfis"),
-          fetch("http://localhost:8000/api/acessorios"),
-          fetch("http://localhost:8000/api/vidros"),
-        ]);
+  // Renderização condicional para loading e erros
+  if (loading && perfis.length === 0) {
+    return (
+      <Box sx={{ p: 4, textAlign: 'center' }}>
+        <CircularProgress />
+        <Typography>Carregando catálogo...</Typography>
+      </Box>
+    );
+  }
 
-        console.log('Respostas recebidas:', {
-          perfisStatus: perfisRes.status,
-          acessoriosStatus: acessoriosRes.status,
-          vidrosStatus: vidrosRes.status,
-        });
-
-        if (!perfisRes.ok) throw new Error(`Erro ao carregar perfis: ${perfisRes.status}`);
-        if (!acessoriosRes.ok) throw new Error(`Erro ao carregar acessórios: ${acessoriosRes.status}`);
-        if (!vidrosRes.ok) throw new Error(`Erro ao carregar vidros: ${vidrosRes.status}`);
-
-        const [perfisData, acessoriosData, vidrosData] = await Promise.all([
-          perfisRes.json(),
-          acessoriosRes.json(),
-          vidrosRes.json(),
-        ]);
-
-        console.log('Dados recebidos:', {
-          perfis: perfisData,
-          acessorios: acessoriosData,
-          vidros: vidrosData,
-        });
-
-        setPerfis(perfisData);
-        setAcessorios(acessoriosData);
-        setVidros(vidrosData);
-      } catch (error) {
-        console.error('Erro ao carregar dados:', error);
-        alert(`Erro ao carregar o catálogo: ${error.message}`);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  if (loading) return <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /><Typography>Carregando catálogo...</Typography></Box>;
+  if (error) {
+    return (
+      <Box sx={{ p: 4, textAlign: 'center' }}>
+        <Typography color="error" gutterBottom>
+          {error}
+        </Typography>
+        <Button 
+          variant="contained" 
+          color="primary" 
+          onClick={fetchCatalogo}
+          sx={{ mt: 2 }}
+        >
+          Tentar novamente
+        </Button>
+      </Box>
+    );
+  }
 
   return (
-    <Container maxWidth="md" sx={{ mt: 4 }}>
-      <Paper elevation={3} sx={{ p: 2 }}>
-        <Typography variant="h5" gutterBottom>Catálogo</Typography>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth" sx={{ mb: 2 }}>
-          <Tab label="Perfis" />
-          <Tab label="Acessórios" />
-          <Tab label="Vidros" />
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Paper elevation={3} sx={{ p: 3, position: 'relative' }}>
+        {/* Overlay de carregamento */}
+        {loading && (
+          <Box sx={{ 
+            position: 'absolute', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            backgroundColor: 'rgba(255, 255, 255, 0.7)',
+            zIndex: 1
+          }}>
+            <CircularProgress />
+          </Box>
+        )}
+        
+        {/* Cabeçalho */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+            Catálogo de Produtos
+          </Typography>
+          
+          <Box>
+            <Button 
+              variant="contained" 
+              color="primary" 
+              onClick={() => { 
+                setEditingPerfil(null); 
+                setModalOpen(true); 
+              }}
+              sx={{ ml: 2 }}
+            >
+              Novo Perfil
+            </Button>
+          </Box>
+        </Box>
+        
+        {/* Abas */}
+        <Tabs 
+          value={tab} 
+          onChange={(_, v) => setTab(v)} 
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{ 
+            mb: 3,
+            '& .MuiTabs-indicator': {
+              height: 4,
+              borderRadius: '4px 4px 0 0',
+            },
+          }}
+        >
+          <Tab label="Perfis" sx={{ fontWeight: 'medium' }} />
+          <Tab label="Acessórios" sx={{ fontWeight: 'medium' }} />
+          <Tab label="Vidros" sx={{ fontWeight: 'medium' }} />
         </Tabs>
         <TabPanel value={tab} index={0}>
-  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-  <Typography variant="h6">Perfis</Typography>
-  <button style={{ background: '#1976d2', color: '#fff', border: 'none', borderRadius: 4, padding: '8px 16px', cursor: 'pointer' }}
-    onClick={() => { setEditingPerfil(null); setModalOpen(true); }}>
-    Novo Perfil
-  </button>
-</Box>
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="h5" component="h2" sx={{ mb: 2, color: 'text.secondary', fontWeight: 'medium' }}>
+              Perfis Disponíveis
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Gerencie os perfis disponíveis para orçamentos e projetos.
+            </Typography>
+          </Box>
 <Box sx={{ overflowX: 'auto' }}>
   {Object.entries(perfis.reduce((acc, perfil) => {
     acc[perfil.fornecedor] = acc[perfil.fornecedor] || [];
@@ -302,6 +393,21 @@ export default function Catalogo() {
   </Box>
 </TabPanel>
       </Paper>
+          {/* Snackbar para feedback */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert 
+          onClose={handleCloseSnackbar} 
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 }

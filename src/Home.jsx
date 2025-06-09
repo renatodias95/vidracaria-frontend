@@ -22,7 +22,11 @@ const navButtons = [
   { label: 'Estoque', icon: <WarehouseIcon sx={{ fontSize: 54 }} />, color: '#d32f2f', bg: 'linear-gradient(135deg, #ffebee 0%, #d32f2f 100%)', screen: 'estoque' },
 ];
 
+import { useNavigate } from 'react-router-dom';
+
 export default function Home({ setCurrentScreen, isAuthenticated, onLogin, loginLoading, loginError, scrollToLoginArea, loginRef }) {
+  const navigate = useNavigate();
+
   return (
     <Box sx={{ width: '100vw', minHeight: '100vh', background: '#fff', overflowX: 'hidden' }}>
       {/* HERO SECTION FULLSCREEN */}
@@ -58,7 +62,23 @@ export default function Home({ setCurrentScreen, isAuthenticated, onLogin, login
                   key={btn.label}
                   onClick={() => {
                     if (isAuthenticated) {
-                      setCurrentScreen(btn.screen);
+                      switch (btn.screen) {
+                        case 'catalogo':
+                          navigate('/catalogo');
+                          break;
+                        case 'orcamentos':
+                          navigate('/orcamentos');
+                          break;
+                        case 'projetos':
+                          navigate('/projetos');
+                          break;
+                        case 'estoque':
+                          navigate('/estoque');
+                          break;
+                        default:
+                          // Não navegue para dashboard automaticamente
+                          break;
+                      }
                     } else if (scrollToLoginArea) {
                       scrollToLoginArea();
                     }
